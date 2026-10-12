@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单摆简谐振动模拟器 — Week05</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #1a1a24; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 14px; left: 16px;
+    font: 13px/1.7 Consolas, "Courier New", monospace;
+    color: #8fd3ff; text-shadow: 0 0 6px rgba(80,180,255,.45);
+    pointer-events: none; user-select: none; white-space: pre;
+  }
+  #panel {
+    position: fixed; bottom: 18px; left: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 16px; border: 1px solid #2e3a55; border-radius: 10px;
+    background: rgba(26,26,36,0.85);
+    box-shadow: 0 0 18px rgba(60,120,200,.18), inset 0 0 24px rgba(60,120,200,.06);
+    font: 13px Consolas, "Courier New", monospace; color: #8fd3ff;
+    user-select: none;
+  }
+  #panel label { display: flex; align-items: center; gap: 10px; }
+  #panel input[type=range] { width: 180px; accent-color: #5ab8ff; }
+  #panel .val { display: inline-block; width: 64px; text-align: right; color: #d8f2ff; }
+  #resetBtn {
+    margin-top: 4px; padding: 6px 0; border: 1px solid #3d5578; border-radius: 6px;
+    background: rgba(90,184,255,0.12); color: #8fd3ff; cursor: pointer;
+    font: 13px Consolas, "Courier New", monospace; letter-spacing: 2px;
+    transition: background .15s, box-shadow .15s;
+  }
+  #resetBtn:hover { background: rgba(90,184,255,0.28); box-shadow: 0 0 10px rgba(90,184,255,.35); }
+  #resetBtn:active { background: rgba(90,184,255,0.4); }
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<div id="panel">
+  <label>摆长 L
+    <input id="lenSlider" type="range" min="100" max="350" step="1" value="200">
+    <span class="val" id="lenVal">200 px</span>
+  </label>
+  <label>重力 g
+    <input id="gSlider" type="range" min="1" max="25" step="0.1" value="9.8">
+    <span class="val" id="gVal">9.8 m/s²</span>
+  </label>
+  <label>阻尼 c
+    <input id="dampSlider" type="range" min="0" max="0.01" step="0.0001" value="0">
+    <span class="val" id="dampVal">0.0000</span>
+  </label>
+  <button id="resetBtn" type="button">重置初始状态</button>
+</div>
+<canvas id="stage"></canvas>
+<script>
+(function () {
+  'use strict';
+
+  var canvas = document.getElementById('stage');
+  var ctx = canvas.getContext('2d');
+  var hud = document.getElementById('hud');
+
+  // 物理参数：摆长 200px，g=9.8 m/s^2，初始摆角 45°，滑块可实时修改 L/g
+  var L = 200;
+  var G = 9.8;
+  var PX_PER_M = 100;            // 像素→米换算，L=200px 即 2m
+  var L_m = L / PX_PER_M;
+  var theta = 45 * Math.PI / 180; // 当前摆角
+  var omega = 0;                  // 角速度
+  var DAMPING = 0.0;              // 阻尼系数，滑块可调 0~0.010
+  var lastT = null;
+  var period = 2 * Math.PI * Math.sqrt(L_m / G);
+
+  var W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = window.devicePixelRatio || 1;
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);   // HiDPI 物理像素缓冲，消除模糊
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var lenSlider = document.getElementById('lenSlider');
+  var gSlider = document.getElementById('gSlider');
+  var dampSlider = document.getElementById('dampSlider');
+  var lenVal = document.getElementById('lenVal');
+  var gVal = document.getElementById('gVal');
+  var dampVal = document.getElementById('dampVal');
+
+  function syncParams() {
+    L = parseFloat(lenSlider.value);
+    G = parseFloat(gSlider.value);
+    DAMPING = parseFloat(dampSlider.value);
+    L_m = L / PX_PER_M;
+    period = 2 * Math.PI * Math.sqrt(L_m / G);
+    lenVal.textContent = L + ' px';
+    gVal.textContent = G.toFixed(1) + ' m/s²';
+    dampVal.textContent = DAMPING.toFixed(4);
+  }
+  lenSlider.addEventListener('input', syncParams);
+  gSlider.addEventListener('input', syncParams);
+  dampSlider.addEventListener('input', syncParams);
+
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    lenSlider.value = 200;        // 参数全部回到初始值
+    gSlider.value = 9.8;
+    dampSlider.value = 0;
+    syncParams();
+    theta = 45 * Math.PI / 180;   // 摆球精准复位 45°
+    omega = 0;
+    trail.length = 0;
+  });
+
+  function step(dt) {
+    // 非线性摆方程 θ'' = -(g/L)·sinθ；小角度下即简谐振动
+    var alpha = -(G / L_m) * Math.sin(theta) - DAMPING * omega;
+    omega += alpha * dt;          // 半隐式欧拉，能量稳定
+    theta += omega * dt;
+  }
+
+  // 由机械能守恒反解当前摆动幅值：cosθmax = cosθ − Lω²/(2g)
+  function amplitude() {
+    var c = Math.cos(theta) - (L_m * omega * omega) / (2 * G);
+    c = Math.max(-1, Math.min(1, c));
+    return Math.acos(c);          // [0, π]
+  }
+
+  function normDeg(rad) {         // 显示角度归一化到 (−180°, 180°]
+    var d = rad * 180 / Math.PI;
+    return ((d + 540) % 360) - 180;
+  }
+
+  function pivotPos() {           // 悬点自适应，保证摆球最低点不出屏幕
+    return { x: W / 2, y: Math.max(50, Math.min(H * 0.18, H - L - 60)) };
+  }
+
+  var trail = [];
+  var TRAIL_MAX = 46;
+
+  function drawGrid() {
+    ctx.strokeStyle = 'rgba(90,130,200,0.05)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var x = 0; x <= W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (var y = 0; y <= H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+  }
+
+  function draw(pv) {
+    ctx.clearRect(0, 0, W, H);
+    drawGrid();
+
+    var bobX = pv.x + L * Math.sin(theta);
+    var bobY = pv.y + L * Math.cos(theta);
+
+    // 摆动轨迹弧：边界取能量守恒算出的真实幅值
+    var amp = Math.min(amplitude(), Math.PI);
+    ctx.beginPath();
+    ctx.arc(pv.x, pv.y, L, Math.PI / 2 - amp, Math.PI / 2 + amp);
+    ctx.strokeStyle = 'rgba(120,160,220,0.18)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 拖尾光迹（渐隐）
+    trail.push({ x: bobX, y: bobY });
+    if (trail.length > TRAIL_MAX) trail.shift();
+    for (var i = 0; i < trail.length; i++) {
+      var a = i / trail.length;
+      ctx.beginPath();
+      ctx.arc(trail[i].x, trail[i].y, 10 * a, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(90,184,255,' + (0.10 * a * a).toFixed(3) + ')';
+      ctx.fill();
+    }
+
+    // 摆线：悬点→摆球渐变
+    var rod = ctx.createLinearGradient(pv.x, pv.y, bobX, bobY);
+    rod.addColorStop(0, '#5d6b8a');
+    rod.addColorStop(1, '#9fb6d8');
+    ctx.beginPath();
+    ctx.moveTo(pv.x, pv.y);
+    ctx.lineTo(bobX, bobY);
+    ctx.strokeStyle = rod;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 悬点
+    ctx.beginPath();
+    ctx.arc(pv.x, pv.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#3c4763';
+    ctx.fill();
+    ctx.strokeStyle = '#6f86b8';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 摆球发光光效（外层辉光 + 内层高亮）
+    var r = 18;
+    var glow = ctx.createRadialGradient(bobX, bobY, r * 0.3, bobX, bobY, r * 3.2);
+    glow.addColorStop(0, 'rgba(90,190,255,0.55)');
+    glow.addColorStop(1, 'rgba(90,190,255,0)');
+    ctx.beginPath();
+    ctx.arc(bobX, bobY, r * 3.2, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
+
+    var ball = ctx.createRadialGradient(bobX - r * 0.35, bobY - r * 0.35, r * 0.15, bobX, bobY, r);
+    ball.addColorStop(0, '#d8f2ff');
+    ball.addColorStop(0.45, '#5ab8ff');
+    ball.addColorStop(1, '#1f5f96');
+    ctx.beginPath();
+    ctx.arc(bobX, bobY, r, 0, Math.PI * 2);
+    ctx.fillStyle = ball;
+    ctx.fill();
+  }
+
+  function loop(t) {
+    if (lastT === null) lastT = t;
+    var dt = Math.min((t - lastT) / 1000, 0.033); // 限帧步长防跳变
+    lastT = t;
+
+    // 子步积分提高精度
+    var sub = 4;
+    for (var i = 0; i < sub; i++) step(dt / sub);
+
+    var pv = pivotPos();
+    draw(pv);
+
+    hud.textContent =
+      '单摆模拟器 | L=' + L + 'px(' + L_m.toFixed(2) + 'm)  g=' + G.toFixed(1) + 'm/s²  θ₀=45°\n' +
+      '当前摆角: ' + normDeg(theta).toFixed(1) + '°\n' +
+      '角速度:   ' + omega.toFixed(2) + ' rad/s\n' +
+      '理论周期: ' + period.toFixed(2) + ' s';
+
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
