@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>排错演练页 — 03_buggy_practice（含预设 bug）</title>
+<style>
+  html, body { margin: 0; background: #1a1a24; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 14px; left: 16px;
+    font: 13px/1.7 Consolas, monospace; color: #8fd3ff;
+    pointer-events: none; white-space: pre;
+  }
+  #resetBtn {
+    position: fixed; bottom: 18px; left: 16px;
+    padding: 8px 22px; border: 1px solid #3d5578; border-radius: 6px;
+    background: rgba(90,184,255,0.12); color: #8fd3ff; cursor: pointer;
+    font: 14px Consolas, monospace; letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<button id="resetBtn" type="button" onclick="resetAnimation()">重置摆动</button>
+<canvas id="stage"></canvas>
+<script>
+(function () {
+  'use strict';
+
+  var canvas = document.getElementById('stage');
+  var ctx = canvas.getContext('2d');
+  var hud = document.getElementById('hud');
+
+  var L = 200, G = 9.8, PX_PER_M = 100;
+  var THETA0 = 45 * Math.PI / 180;
+  var theta = THETA0, omega = 0, lastT = null;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // 修复方案2：保留内联 onclick，把闭包内函数显式挂到 window 全局
+  // 内联处理器按全局作用域链查找标识符，挂载后即可解析到
+  function resetAnimation() {
+    theta = THETA0;
+    omega = 0;
+  }
+  window.resetAnimation = resetAnimation;
+
+  function step(dt) {
+    var alpha = -(G / (L / PX_PER_M)) * Math.sin(theta);
+    omega += alpha * dt;
+    theta += omega * dt;
+  }
+
+  function loop(t) {
+    if (lastT === null) lastT = t;
+    var dt = Math.min((t - lastT) / 1000, 0.033);
+    lastT = t;
+    step(dt / 4); step(dt / 4); step(dt / 4); step(dt / 4);
+
+    var W = canvas.width, H = canvas.height;
+    var px = W / 2, py = H * 0.18;
+    var bx = px + L * Math.sin(theta), by = py + L * Math.cos(theta);
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(bx, by);
+    ctx.strokeStyle = '#9aa7c0'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx, by, 18, 0, Math.PI * 2);
+    ctx.fillStyle = '#5ab8ff'; ctx.fill();
+
+    hud.textContent = '演练页（bug 版）\n当前摆角: ' +
+      (theta * 180 / Math.PI).toFixed(1) + '°\n点击“重置摆动”复现报错';
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
