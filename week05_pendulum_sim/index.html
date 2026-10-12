@@ -25,19 +25,32 @@
   #panel label { display: flex; align-items: center; gap: 10px; }
   #panel input[type=range] { width: 180px; accent-color: #5ab8ff; }
   #panel .val { display: inline-block; width: 64px; text-align: right; color: #d8f2ff; }
+  #resetBtn {
+    margin-top: 4px; padding: 6px 0; border: 1px solid #3d5578; border-radius: 6px;
+    background: rgba(90,184,255,0.12); color: #8fd3ff; cursor: pointer;
+    font: 13px Consolas, "Courier New", monospace; letter-spacing: 2px;
+    transition: background .15s, box-shadow .15s;
+  }
+  #resetBtn:hover { background: rgba(90,184,255,0.28); box-shadow: 0 0 10px rgba(90,184,255,.35); }
+  #resetBtn:active { background: rgba(90,184,255,0.4); }
 </style>
 </head>
 <body>
 <div id="hud"></div>
 <div id="panel">
   <label>摆长 L
-    <input id="lenSlider" type="range" min="80" max="320" step="1" value="200">
+    <input id="lenSlider" type="range" min="100" max="350" step="1" value="200">
     <span class="val" id="lenVal">200 px</span>
   </label>
   <label>重力 g
     <input id="gSlider" type="range" min="1" max="25" step="0.1" value="9.8">
     <span class="val" id="gVal">9.8 m/s²</span>
   </label>
+  <label>阻尼 c
+    <input id="dampSlider" type="range" min="0" max="0.01" step="0.0001" value="0">
+    <span class="val" id="dampVal">0.0000</span>
+  </label>
+  <button id="resetBtn" type="button">重置初始状态</button>
 </div>
 <canvas id="stage"></canvas>
 <script>
@@ -55,7 +68,7 @@
   var L_m = L / PX_PER_M;
   var theta = 45 * Math.PI / 180; // 当前摆角
   var omega = 0;                  // 角速度
-  var DAMPING = 0.0;              // 无阻尼，理想简谐
+  var DAMPING = 0.0;              // 阻尼系数，滑块可调 0~0.010
   var lastT = null;
   var period = 2 * Math.PI * Math.sqrt(L_m / G);
 
@@ -75,19 +88,34 @@
 
   var lenSlider = document.getElementById('lenSlider');
   var gSlider = document.getElementById('gSlider');
+  var dampSlider = document.getElementById('dampSlider');
   var lenVal = document.getElementById('lenVal');
   var gVal = document.getElementById('gVal');
+  var dampVal = document.getElementById('dampVal');
 
   function syncParams() {
     L = parseFloat(lenSlider.value);
     G = parseFloat(gSlider.value);
+    DAMPING = parseFloat(dampSlider.value);
     L_m = L / PX_PER_M;
     period = 2 * Math.PI * Math.sqrt(L_m / G);
     lenVal.textContent = L + ' px';
     gVal.textContent = G.toFixed(1) + ' m/s²';
+    dampVal.textContent = DAMPING.toFixed(4);
   }
   lenSlider.addEventListener('input', syncParams);
   gSlider.addEventListener('input', syncParams);
+  dampSlider.addEventListener('input', syncParams);
+
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    lenSlider.value = 200;        // 参数全部回到初始值
+    gSlider.value = 9.8;
+    dampSlider.value = 0;
+    syncParams();
+    theta = 45 * Math.PI / 180;   // 摆球精准复位 45°
+    omega = 0;
+    trail.length = 0;
+  });
 
   function step(dt) {
     // 非线性摆方程 θ'' = -(g/L)·sinθ；小角度下即简谐振动
