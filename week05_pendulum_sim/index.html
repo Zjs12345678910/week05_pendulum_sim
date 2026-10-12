@@ -11,12 +11,33 @@
     position: fixed; top: 14px; left: 16px;
     font: 13px/1.7 Consolas, "Courier New", monospace;
     color: #8fd3ff; text-shadow: 0 0 6px rgba(80,180,255,.45);
-    pointer-events: none; user-select: none;
+    pointer-events: none; user-select: none; white-space: pre;
   }
+  #panel {
+    position: fixed; bottom: 18px; left: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 16px; border: 1px solid #2e3a55; border-radius: 8px;
+    background: rgba(26,26,36,0.85); box-shadow: 0 0 12px rgba(60,120,200,.15);
+    font: 13px Consolas, "Courier New", monospace; color: #8fd3ff;
+    user-select: none;
+  }
+  #panel label { display: flex; align-items: center; gap: 10px; }
+  #panel input[type=range] { width: 180px; accent-color: #5ab8ff; }
+  #panel .val { display: inline-block; width: 56px; text-align: right; color: #d8f2ff; }
 </style>
 </head>
 <body>
 <div id="hud"></div>
+<div id="panel">
+  <label>摆长 L
+    <input id="lenSlider" type="range" min="80" max="320" step="1" value="200">
+    <span class="val" id="lenVal">200 px</span>
+  </label>
+  <label>重力 g
+    <input id="gSlider" type="range" min="1" max="25" step="0.1" value="9.8">
+    <span class="val" id="gVal">9.8 m/s²</span>
+  </label>
+</div>
 <canvas id="stage"></canvas>
 <script>
 (function () {
@@ -26,7 +47,7 @@
   var ctx = canvas.getContext('2d');
   var hud = document.getElementById('hud');
 
-  // 物理参数：摆长 200px，g=9.8 m/s^2，初始摆角 45°
+  // 物理参数：摆长 200px，g=9.8 m/s^2，初始摆角 45°，滑块可实时修改 L/g
   var L = 200;
   var G = 9.8;
   var PX_PER_M = 100;            // 像素→米换算，L=200px 即 2m
@@ -35,6 +56,23 @@
   var omega = 0;                  // 角速度
   var DAMPING = 0.0;              // 无阻尼，理想简谐
   var lastT = null;
+  var period = 2 * Math.PI * Math.sqrt(L_m / G);
+
+  var lenSlider = document.getElementById('lenSlider');
+  var gSlider = document.getElementById('gSlider');
+  var lenVal = document.getElementById('lenVal');
+  var gVal = document.getElementById('gVal');
+
+  function syncParams() {
+    L = parseFloat(lenSlider.value);
+    G = parseFloat(gSlider.value);
+    L_m = L / PX_PER_M;
+    period = 2 * Math.PI * Math.sqrt(L_m / G);
+    lenVal.textContent = L + ' px';
+    gVal.textContent = G.toFixed(1) + ' m/s²';
+  }
+  lenSlider.addEventListener('input', syncParams);
+  gSlider.addEventListener('input', syncParams);
 
   function resize() {
     canvas.width = window.innerWidth;
@@ -104,8 +142,6 @@
     return bobX;
   }
 
-  var period = 2 * Math.PI * Math.sqrt(L_m / G);
-
   function loop(t) {
     if (lastT === null) lastT = t;
     var dt = Math.min((t - lastT) / 1000, 0.033); // 限帧步长防跳变
@@ -120,7 +156,7 @@
     draw(pivotX, pivotY);
 
     hud.textContent =
-      '单摆模拟器 | L=200px(2m)  g=9.8m/s²  θ₀=45°\n' +
+      '单摆模拟器 | L=' + L + 'px(' + L_m.toFixed(2) + 'm)  g=' + G.toFixed(1) + 'm/s²  θ₀=45°\n' +
       '当前摆角: ' + (theta * 180 / Math.PI).toFixed(1) + '°\n' +
       '角速度:   ' + omega.toFixed(2) + ' rad/s\n' +
       '理论周期: ' + period.toFixed(2) + ' s';
